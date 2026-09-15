@@ -1,0 +1,132 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Models\Question;
+
+test('guest', function (): void {
+    $question = Question::factory()->create([
+        'answer' => 'This is the answer',
+    ]);
+
+    $response = $this->get(route('notifications.show', [
+        'username' => $question->from->username,
+        'notification' => $question->to->notifications()->first(),
+    ]));
+
+    $response->assertRedirect(route('login'));
+});
+
+test("another user's notification is not visible nor deleted", function (): void {
+    $question = Question::factory()->create();
+
+    $question->update(['answer' => 'Question answer']);
+
+    $notification = $question->from->notifications()->first();
+    expect($notification->fresh())->not->toBeNull();
+
+    /** @var Illuminate\Testing\TestResponse $response */
+    $response = $this->actingAs($question->to)
+        ->get(route('notifications.show', [
+            'notification' => $notification,
+        ]));
+
+    $response->assertNotFound();
+    expect($notification->fresh())->not->toBeNull();
+});
+
+test('notifications about answers are deleted', function (): void {
+    $question = Question::factory()->create();
+
+    $question->update(['answer' => 'Question answer']);
+
+    $notification = $question->from->notifications()->first();
+    expect($notification->fresh())->not->toBeNull();
+
+    /** @var Illuminate\Testing\TestResponse $response */
+    $response = $this->actingAs($question->from)
+        ->get(route('notifications.show', [
+            'notification' => $notification,
+        ]));
+
+    $response->assertRedirectToRoute('questions.show', ['question' => $question, 'username' => $question->to->username]);
+    expect($notification->fresh())->toBeNull();
+});
+
+test('notifications about questions are not deleted', function (): void {
+    $question = Question::factory()->create([
+        'answer' => null,
+    ]);
+
+    expect($question->to->notifications()->count())->toBe(1);
+
+    $notification = $question->to->notifications()->first();
+
+    /** @var Illuminate\Testing\TestResponse $response */
+    $response = $this->actingAs($question->to)
+        ->get(route('notifications.show', [
+            'notification' => $notification,
+        ]));
+
+    $response->assertRedirectToRoute('questions.show', ['question' => $question, 'username' => $question->to->username]);
+    expect($notification->fresh())->not->toBeNull();
+});
+
+test('orphan notification is deleted and redirects to notifications index', function (): void {
+    $user = App\Models\User::factory()->create();
+
+    $notification = Illuminate\Notifications\DatabaseNotification::query()->create([
+        'id' => Illuminate\Support\Str::uuid()->toString(),
+        'type' => App\Notifications\QuestionCreated::class,
+        'notifiable_type' => $user::class,
+        'notifiable_id' => $user->getKey(),
+        'data' => ['question_id' => Illuminate\Support\Str::uuid()->toString()],
+    ]);
+
+    $response = $this->actingAs($user)
+        ->get(route('notifications.show', [
+            'notification' => $notification,
+        ]));
+
+    $response->assertRedirectToRoute('notifications.index');
+    expect($notification->fresh())->toBeNull();
+});
+
+test('follow notifications redirect to follower profile and are deleted', function (): void {
+    $follower = App\Models\User::factory()->create();
+    $user = App\Models\User::factory()->create();
+
+    $user->notify(new App\Notifications\UserFollowed($follower));
+
+    $notification = $user->notifications()->first();
+    expect($notification)->not->toBeNull();
+
+    /** @var Illuminate\Testing\TestResponse $response */
+    $response = $this->actingAs($user)
+        ->get(route('notifications.show', [
+            'notification' => $notification,
+        ]));
+
+    $response->assertRedirectToRoute('profile.show', ['username' => $follower->username]);
+    expect($notification->fresh())->toBeNull();
+});
+
+test('orphan follow notification is deleted and redirects to notifications index', function (): void {
+    $user = App\Models\User::factory()->create();
+
+    $notification = Illuminate\Notifications\DatabaseNotification::query()->create([
+        'id' => Illuminate\Support\Str::uuid()->toString(),
+        'type' => App\Notifications\UserFollowed::class,
+        'notifiable_type' => $user::class,
+        'notifiable_id' => $user->getKey(),
+        'data' => ['follower_id' => 999999],
+    ]);
+
+    $response = $this->actingAs($user)
+        ->get(route('notifications.show', [
+            'notification' => $notification,
+        ]));
+
+    $response->assertRedirectToRoute('notifications.index');
+    expect($notification->fresh())->toBeNull();
+});

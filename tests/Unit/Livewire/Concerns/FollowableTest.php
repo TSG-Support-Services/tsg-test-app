@@ -1,0 +1,132 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Livewire\Concerns\Followable;
+use App\Models\User;
+use App\Notifications\UserFollowed;
+use Livewire\Component;
+use Livewire\Features\SupportTesting\Testable;
+use Livewire\Livewire;
+
+it('follows the given user', function (): void {
+    $user = User::factory()->create();
+    $anotherUser = User::factory()->create();
+
+    /** @var Testable $component */
+    $component = Livewire::actingAs($user)->test(supportsFollow()::class);
+
+    $component->call('follow', $anotherUser->id);
+
+    expect($user->following->contains($anotherUser))->toBeTrue()
+        ->and($anotherUser->notifications()->count())->toBe(1);
+
+    $component->assertDispatched('following.updated');
+
+    $component->assertDispatched('user.followed',
+        id: $anotherUser->id,
+    );
+});
+
+it('does not fail when following the same user twice', function (): void {
+    $user = User::factory()->create();
+    $anotherUser = User::factory()->create();
+
+    /** @var Testable $component */
+    $component = Livewire::actingAs($user)->test(supportsFollow()::class);
+
+    $component->call('follow', $anotherUser->id);
+    $component->call('follow', $anotherUser->id);
+
+    expect($user->following()->whereKey($anotherUser->id)->count())->toBe(1)
+        ->and($anotherUser->notifications()->count())->toBe(1);
+});
+
+it('unfollows the given user', function (): void {
+    $user = User::factory()->create();
+    $anotherUser = User::factory()->create();
+
+    $user->following()->attach($anotherUser);
+    $anotherUser->notify(new UserFollowed($user));
+    expect($anotherUser->notifications()->count())->toBe(1);
+
+    /** @var Testable $component */
+    $component = Livewire::actingAs($user)->test(supportsFollow()::class);
+
+    $component->call('unfollow', $anotherUser->id);
+
+    expect($user->following->contains($anotherUser))->toBeFalse()
+        ->and($anotherUser->notifications()->count())->toBe(0);
+
+    $component->assertDispatched('following.updated');
+
+    $component->assertDispatched('user.unfollowed',
+        id: $anotherUser->id,
+    );
+});
+
+it('redirects to the login page when the user is not authenticated', function (): void {
+    $component = Livewire::test(supportsFollow()::class);
+
+    $component->call('follow', 1);
+
+    $component->assertRedirect('login');
+
+    $component->call('unfollow', 1);
+
+    $component->assertRedirect('login');
+});
+
+it('does not handle following count when the method is not implemented', function (): void {
+    $user = User::factory()->create();
+    $anotherUser = User::factory()->create();
+
+    /** @var Testable $component */
+    $component = Livewire::actingAs($user)->test(withoutFollowingHandle()::class);
+
+    $component->call('follow', $anotherUser->id);
+
+    expect($user->following->contains($anotherUser))->toBeTrue();
+
+    $component->assertNotDispatched('following.updated');
+});
+
+function supportsFollow(): Component
+{
+    return new class() extends Component
+    {
+        use Followable;
+
+        public function render(): string
+        {
+            return <<<'HTML'
+                <div>
+                    <button wire:click="follow(1)">Follow</button>
+                    <button wire:click="unfollow(1)">Unfollow</button>
+                </div>
+            HTML;
+        }
+
+        protected function shouldHandleFollowingCount(): bool
+        {
+            return true;
+        }
+    };
+}
+function withoutFollowingHandle(): Component
+{
+    return new class() extends Component
+    {
+        use Followable;
+
+        public function render(): string
+        {
+            return <<<'HTML'
+                <div>
+                    <button wire:click="follow(1)">Follow</button>
+                    <button wire:click="unfollow(1)">Unfollow</button>
+                </div>
+            HTML;
+        }
+    };
+}

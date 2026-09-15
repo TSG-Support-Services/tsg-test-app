@@ -1,0 +1,75 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Filament\Resources;
+
+use App\Actions\Users\DeleteUser;
+use App\Filament\Resources\UserResource\Pages;
+use App\Models\BlockedAccount;
+use App\Models\User;
+use BackedEnum;
+use Filament\Actions\Action;
+use Filament\Resources\Resource;
+use Filament\Support\Colors\Color;
+use Filament\Tables;
+use Filament\Tables\Table;
+use Illuminate\Support\Facades\DB;
+
+final class UserResource extends Resource
+{
+    /**
+     * The model the resource corresponds to.
+     */
+    protected static ?string $model = User::class;
+
+    /**
+     * The navigation icon for the resource.
+     */
+    protected static BackedEnum|string|null $navigationIcon = 'heroicon-o-users';
+
+    /**
+     * Configures the table for the resource.
+     */
+    public static function table(Table $table): Table
+    {
+        return $table
+            ->columns([
+                Tables\Columns\TextColumn::make('name')
+                    ->searchable(),
+                Tables\Columns\TextColumn::make('username')
+                    ->searchable(),
+            ])
+            ->actions([
+                Action::make('visit_question')
+                    ->label('Visit Profile')
+                    ->url(fn (User $record): string => route('profile.show', [
+                        'username' => $record->username,
+                    ]))
+                    ->openUrlInNewTab(),
+
+                Action::make('delete')
+                    ->requiresConfirmation()
+                    ->color(Color::Red)
+                    ->action(function (User $record, DeleteUser $deleteUser): void {
+                        DB::transaction(function () use ($record, $deleteUser): void {
+                            BlockedAccount::firstOrCreate([
+                                'email' => $record->email,
+                            ]);
+
+                            $deleteUser->handle($record);
+                        });
+                    }),
+            ]);
+    }
+
+    /**
+     * Configures the pages for the resource.
+     */
+    public static function getPages(): array
+    {
+        return [
+            'index' => Pages\Index::route('/'),
+        ];
+    }
+}

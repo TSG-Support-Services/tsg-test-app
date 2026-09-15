@@ -1,0 +1,26 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Models\Bookmark;
+use App\Models\Question;
+use App\Models\User;
+
+test('to array', function (): void {
+    $question = Bookmark::factory()->create()->fresh();
+
+    expect(array_keys($question->toArray()))->toContain(
+        'id',
+        'user_id',
+        'question_id',
+        'created_at',
+        'updated_at',
+    )->toHaveCount(5);
+});
+
+test('relations', function (): void {
+    $bookmark = Bookmark::factory()->create();
+
+    expect($bookmark->user)->toBeInstanceOf(User::class)
+        ->and($bookmark->question)->toBeInstanceOf(Question::class);
+});
